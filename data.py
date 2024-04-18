@@ -15,5 +15,5 @@ def generate_contexts(n_gen_context, d, rho, seed=0, delta=10e-5):
     selected_cordinate = np.random.choice(np.arange(0,d-1,1), size=n_gen_context)
     append_set = np.array([X_set[selected_cordinate[i],i] for i in range(n_gen_context)])
     X_set = np.vstack((X_set, append_set))
-    u = np.random.uniform(0,1,n_gen_context)
-    return([u[i]*X_set[:,i]/np.linalg.norm(X_set[:,i]) for i in range(n_gen_context)])
+    u = np.random.uniform(0,1,n_gen_context) #Scaling factor
+    return([u[i]*X_set[:,i]/np.linalg.norm(X_set[:,i]) for i in range(n_gen_context)]) #Unit ball action set

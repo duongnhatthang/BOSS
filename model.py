@@ -14,15 +14,13 @@ TS
 '''
 class TS:
     def __init__(self, d, v):
-        ## Initialization
-        self.beta_hat=np.zeros(d)
-        self.f=np.zeros(d)
-        self.Binv=np.eye(d)
-        self.t = 0
-
         ## Hyperparameters
         self.v=v
         self.settings = {'v': self.v}
+        self.d = d
+
+        ## Initialization
+        self.reset()
 
     def select_ac(self,contexts):
         ## Sample beta_tilde.
@@ -40,6 +38,12 @@ class TS:
         self.Binv = sherman_morrison(X=self.X_a, V=self.Binv)
         self.beta_hat=np.dot(self.Binv, self.f)
 
+    def reset(self):
+        self.beta_hat=np.zeros(self.d)
+        self.f=np.zeros(self.d)
+        self.Binv=np.eye(self.d)
+        self.t = 0
+
 '''
 UCB
 '''
@@ -47,10 +51,9 @@ class UCB:
     def __init__(self, d, alpha, lam=1):
         self.alpha=alpha
         self.d=d
-        self.yx=np.zeros(d)
-        self.Binv=lam*np.eye(d)
-        self.beta_hat = np.zeros(d)
+        self.lam=lam
         self.settings = {'alpha': self.alpha}
+        self.reset()
 
     def select_ac(self, contexts):
         means = np.array([np.dot(X, self.beta_hat) for X in contexts])
@@ -65,6 +68,11 @@ class UCB:
         self.yx = self.yx+reward*self.X_a
         self.beta_hat = self.Binv @ self.yx
 
+    def reset(self):
+        self.yx=np.zeros(self.d)
+        self.Binv=self.lam*np.eye(self.d)
+        self.beta_hat = np.zeros(self.d)
+
 '''
 PHE
 '''
@@ -72,12 +80,9 @@ class PHE:
     def __init__(self, d, alpha, lam=1):
         self.alpha=alpha
         self.d=d
-        self.yx=np.zeros(d)
-        self.Binv=lam*np.eye(d)
-        self.beta_hat = np.zeros(d)
+        self.lam=lam
         self.settings = {'alpha': self.alpha}
-        self.context_list = []
-        self.reward_list = []
+        self.reset()
 
     def select_ac(self, contexts):
         scores = np.array([np.dot(X, self.beta_hat) for X in contexts])
@@ -95,3 +100,10 @@ class PHE:
         self.Binv = sherman_morrison(self.X_a, self.Binv)
         self.yx = np.sum(np.multiply(np.array(self.context_list), pseudo_reward), axis=0)
         self.beta_hat = self.Binv @ self.yx
+
+    def reset(self):
+        self.yx=np.zeros(self.d)
+        self.Binv=self.lam*np.eye(self.d)
+        self.beta_hat = np.zeros(self.d)
+        self.context_list = []
+        self.reward_list = []
