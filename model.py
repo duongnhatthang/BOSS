@@ -23,11 +23,11 @@ class TS:
         self.reset()
 
     def select_ac(self,contexts):
-        ## Sample beta_tilde.
+        ## Sample theta_tilde.
         N=len(contexts)
         V=(self.v**2)*self.Binv
-        beta_tilde=np.random.multivariate_normal(self.beta_hat, V, size=N)
-        est=np.array([np.dot(contexts[i], beta_tilde[i,]) for i in range(N)])
+        theta_tilde=np.random.multivariate_normal(self.theta_hat, V, size=N)
+        est=np.array([np.dot(contexts[i], theta_tilde[i,]) for i in range(N)])
         ## Selecting action with tie-breaking.
         a_t=np.argmax(est)
         self.X_a=contexts[a_t]
@@ -36,10 +36,10 @@ class TS:
     def update(self,reward):
         self.f=self.f+reward*self.X_a
         self.Binv = sherman_morrison(X=self.X_a, V=self.Binv)
-        self.beta_hat=np.dot(self.Binv, self.f)
+        self.theta_hat=np.dot(self.Binv, self.f)
 
     def reset(self):
-        self.beta_hat=np.zeros(self.d)
+        self.theta_hat=np.zeros(self.d)
         self.f=np.zeros(self.d)
         self.Binv=np.eye(self.d)
         self.t = 0
@@ -56,7 +56,7 @@ class UCB:
         self.reset()
 
     def select_ac(self, contexts):
-        means = np.array([np.dot(X, self.beta_hat) for X in contexts])
+        means = np.array([np.dot(X, self.theta_hat) for X in contexts])
         stds = np.array([np.sqrt(X.T @ self.Binv @ X) for X in contexts])
         ucbs = means + self.alpha*stds
         a_t = np.argmax(ucbs)
@@ -66,12 +66,12 @@ class UCB:
     def update(self,reward):
         self.Binv = sherman_morrison(self.X_a, self.Binv)
         self.yx = self.yx+reward*self.X_a
-        self.beta_hat = self.Binv @ self.yx
+        self.theta_hat = self.Binv @ self.yx
 
     def reset(self):
         self.yx=np.zeros(self.d)
         self.Binv=self.lam*np.eye(self.d)
-        self.beta_hat = np.zeros(self.d)
+        self.theta_hat = np.zeros(self.d)
 
 '''
 PHE
@@ -85,7 +85,7 @@ class PHE:
         self.reset()
 
     def select_ac(self, contexts):
-        scores = np.array([np.dot(X, self.beta_hat) for X in contexts])
+        scores = np.array([np.dot(X, self.theta_hat) for X in contexts])
         a_t = np.argmax(scores)
         self.X_a = contexts[a_t]
         self.context_list.append(self.X_a)
@@ -99,11 +99,11 @@ class PHE:
 
         self.Binv = sherman_morrison(self.X_a, self.Binv)
         self.yx = np.sum(np.multiply(np.array(self.context_list), pseudo_reward), axis=0)
-        self.beta_hat = self.Binv @ self.yx
+        self.theta_hat = self.Binv @ self.yx
 
     def reset(self):
         self.yx=np.zeros(self.d)
         self.Binv=self.lam*np.eye(self.d)
-        self.beta_hat = np.zeros(self.d)
+        self.theta_hat = np.zeros(self.d)
         self.context_list = []
         self.reward_list = []
