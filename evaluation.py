@@ -9,7 +9,6 @@ import logging
 import sys
 date_strftime_format = "%Y-%m-%y %H:%M:%S"
 logging.basicConfig(stream=sys.stdout,
-                    # level=logging.DEBUG,
                     level=logging.INFO,
                     format="%(asctime)s %(message)s",
                     datefmt=date_strftime_format)
@@ -20,6 +19,7 @@ logger.disabled = True
 
 MODE_RANDOM = 0
 MODE_ADVERSARY = 1
+MODE_ADV_TASK_DIVERSITY = 2
 
 def _eval_one_sim(input_dict, model,theta, sim_idx, elapsed_time, theta_err):
     n_gen_context = input_dict["n_gen_context"]
@@ -99,7 +99,6 @@ def eval(input_dict):
             opt_reward, model_reward = _eval_one_sim(input_dict, model, theta, sim_idx, elapsed_time, theta_err)
 
             cumul_regret[sim_idx,:] = np.cumsum(opt_reward)-np.cumsum(model_reward)
-        ##Save at dict
         results.append({'model':name,
                         'settings':model.settings,
                         'regrets':cumul_regret.tolist(),
@@ -119,8 +118,6 @@ def eval_multi(input_dict):
     m = input_dict["m"]
     n_task = input_dict["n_task"]
 
-    B = ortho_group.rvs(dim=d)
-    B = np.array(B)[:,:m]
     results = []
     for param in params_set:
         cumul_regret_all = np.zeros((n_sim,T,n_task))
@@ -138,15 +135,16 @@ def eval_multi(input_dict):
 
             if seed is not None:
                 np.random.seed(seed+sim_idx)
-            n_revealed=1
+            n_revealed=0
+            B = ortho_group.rvs(dim=d)
+            B = np.array(B)[:,:m]
             for task_idx in trange(n_task):
                 theta_err_i = theta_err_all[:,:,task_idx]
                 elapsed_time_i = elapsed_time_all[:,:,task_idx]
-                theta = gen_params(B, input_dict, task_idx, n_revealed)
+                theta, n_revealed = gen_params(B, input_dict, task_idx, n_revealed)
                 opt_reward, model_reward = _eval_one_sim(input_dict, model, theta, sim_idx, elapsed_time_i, theta_err_i)
                 cumul_regret_all[sim_idx,:,task_idx] = np.cumsum(opt_reward)-np.cumsum(model_reward)
                 model.reset()
-        ##Save at dict
         results.append({'model':name,
                         'settings':model.settings,
                         'regrets_all':cumul_regret_all,
@@ -174,13 +172,16 @@ def gen_params(B, input_dict, task_idx, n_revealed):
     if mode == MODE_RANDOM:
         theta = _gen_params_from_B(B, m)
         logger.info(f"Random theta={theta}")
-    elif mode == MODE_ADVERSARY:
-        q = adv_const*(d-m)/((np.sqrt(T)-m)*(1+np.sqrt(2*(n_task-task_idx-1)))) #probability of revealing a new dimension
+    else:
+        if mode == MODE_ADVERSARY:
+            q = adv_const*(d-m)/((np.sqrt(T)-m)*(1+np.sqrt(2*(n_task-task_idx-1)))) #probability of revealing a new dimension
+        else: # MODE_ADV_TASK_DIVERSITY
+            q = 1
         reveal_new = np.random.binomial(n=1, p=q)
-        if reveal_new:
+        if reveal_new==1 or n_revealed==0:
             n_revealed = min(n_revealed+1,m)
         low_rank_B = np.copy(B)
         low_rank_B[:, n_revealed:] = 0
         theta = _gen_params_from_B(low_rank_B, m)
         logger.info(f"Adversary reveal prob: q={q}, n_revealed={n_revealed}/{m}, theta={theta}")
-    return theta
+    return theta, n_revealed
