@@ -3,6 +3,20 @@ from tqdm import trange
 from model import UCB, TS, PHE
 from data import generate_contexts
 import time, json, itertools
+from scipy.stats import ortho_group
+
+import logging
+import sys
+date_strftime_format = "%Y-%m-%y %H:%M:%S"
+logging.basicConfig(stream=sys.stdout,
+                    # level=logging.DEBUG,
+                    level=logging.INFO,
+                    format="%(asctime)s %(message)s",
+                    datefmt=date_strftime_format)
+
+# Creating an object
+logger = logging.getLogger()
+logger.disabled = True
 
 MODE_RANDOM = 0
 MODE_ADVERSARY = 1
@@ -93,32 +107,6 @@ def eval(input_dict):
                         'time':elapsed_time.tolist()})
     return _post_process(input_dict, results)
 
-# def _post_process_multi(input_dict, results):
-#     output = input_dict["output"]
-#     d = input_dict["d"]
-#     name = input_dict["name"]
-#     n_gen_context = input_dict["n_gen_context"]
-#     if output:
-#         # Plotting
-#         last_regret = []
-#         for result in results: #Iters over different params
-#             if name == 'TS':
-#                 v = result['settings']['v']
-#             else:
-#                 alpha = result['settings']['alpha']
-#             last_regret.append(np.mean(result['regrets'], axis=0)[-1])
-#         if np.argmin(last_regret) >= len(results) or np.argmin(last_regret)<0:
-#             import pdb; pdb.set_trace()
-#         best = results[np.argmin(last_regret)]
-#         return best
-#     else:
-#         # Save to txt file
-#         with open('./results/{%s}_d%d_N%d.txt' % (name, d, n_gen_context), 'w+') as outfile:
-#             json.dump(results, outfile)
-
-from scipy.stats import ortho_group
-
-
 def eval_multi(input_dict):
     #inputs: n_sim, n_gen_context, d, T, rho, seed, B(bound for the theta)
     name = input_dict["name"]
@@ -154,13 +142,7 @@ def eval_multi(input_dict):
             for task_idx in trange(n_task):
                 theta_err_i = theta_err_all[:,:,task_idx]
                 elapsed_time_i = elapsed_time_all[:,:,task_idx]
-                # true theta
-                # w_i = np.random.uniform(-1,1,m)
-                # u = np.random.uniform(0,1) #Scaling factor
-                # theta = B @ w_i
-                # theta = u*theta/np.linalg.norm(theta) #ensure unit ball length
                 theta = gen_params(B, input_dict, task_idx, n_revealed)
-                print(f"n_revealed = {n_revealed}, theta={theta}")
                 opt_reward, model_reward = _eval_one_sim(input_dict, model, theta, sim_idx, elapsed_time_i, theta_err_i)
                 cumul_regret_all[sim_idx,:,task_idx] = np.cumsum(opt_reward)-np.cumsum(model_reward)
                 model.reset()
@@ -179,7 +161,6 @@ def gen_params(B, input_dict, task_idx, n_revealed):
     def _gen_params_from_B(B, m):
         w_i = np.random.uniform(-1,1,m)
         u = np.random.uniform(0,1) #Scaling factor
-        print(f"Scaling u = {u}")
         theta = B @ w_i
         theta = u*theta/np.linalg.norm(theta) #ensure unit ball length
         return theta
@@ -192,20 +173,14 @@ def gen_params(B, input_dict, task_idx, n_revealed):
     mode = input_dict["mode"]
     if mode == MODE_RANDOM:
         theta = _gen_params_from_B(B, m)
+        logger.info(f"Random theta={theta}")
     elif mode == MODE_ADVERSARY:
         q = adv_const*(d-m)/((np.sqrt(T)-m)*(1+np.sqrt(2*(n_task-task_idx-1)))) #probability of revealing a new dimension
-        print(f"q={q}")
         reveal_new = np.random.binomial(n=1, p=q)
         if reveal_new:
             n_revealed = min(n_revealed+1,m)
-        # diag = np.random.uniform(-1,1,m)
-        # diag[n_revealed:] = 0
-        # print(f"diag = {diag}")
-        # diag = np.diagflat(diag)
-        # import pdb; pdb.set_trace()
-        # low_rank_B = (B @ diag) @ B.T
-        # low_rank_B = np.array(low_rank_B)[:,:m]
         low_rank_B = np.copy(B)
         low_rank_B[:, n_revealed:] = 0
         theta = _gen_params_from_B(low_rank_B, m)
+        logger.info(f"Adversary reveal prob: q={q}, n_revealed={n_revealed}/{m}, theta={theta}")
     return theta
