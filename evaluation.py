@@ -175,6 +175,7 @@ def gen_params(B, input_dict, task_idx, n_revealed):
     else:
         if mode == MODE_ADVERSARY:
             q = adv_const*(d-m)/((np.sqrt(T)-m)*(1+np.sqrt(2*(n_task-task_idx-1)))) #probability of revealing a new dimension
+            q = min(q,1)
         else: # MODE_ADV_TASK_DIVERSITY
             q = 1
         reveal_new = np.random.binomial(n=1, p=q)

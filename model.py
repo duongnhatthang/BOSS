@@ -2,6 +2,7 @@ import numpy as np
 from scipy.stats import norm
 from scipy.optimize import fsolve, minimize
 from sklearn.linear_model import LogisticRegression
+from scipy.stats import ortho_group
 
 ## For quick update of Vinv
 def sherman_morrison(X, V, w=1):
@@ -107,3 +108,81 @@ class PHE:
         self.theta_hat = np.zeros(self.d)
         self.context_list = []
         self.reward_list = []
+
+'''
+PMA
+'''
+class PMA:
+    def __init__(self, input_dict, true_B, alpha, lam=1):
+        self.alpha=alpha
+        self.lam=lam
+        self.input_dict=input_dict
+        T = self.input_dict["T"]
+        d = self.input_dict["d"]
+        m = self.input_dict["m"]
+        n_task = self.input_dict["n_task"]
+
+        self.C_miss = T
+        tau_1 = d**(4/3)*T**(1/3)
+        tau_2 = m*np.sqrt(T)
+        alpha = d/np.sqrt(tau_1)
+        self.C_hit = tau_2+T*(m**2/tau_2 + alpha**2)
+
+        self.expert_list = []
+        for _ in range(input_dict["PMA_n_expert"]-1):
+            B = ortho_group.rvs(dim=d)
+            B = np.array(B)[:,:m]
+            self.expert_list.append(B)
+        self.expert_list.append(true_B) #The expert list always contain the true B
+
+        self.p = self.input_dict["PMA_const"]*np.sqrt(T*d*m/(n_task*(d**(4/3)*T**(1/3)+d**(2/3)*T**(2/3))))
+        self.p = min(self.p ,1)
+
+        self.expert_losses = [0]*input_dict["PMA_n_expert"]
+        self.lr = input_dict["PMA_lr_const"]*1
+        self.reset()
+
+    def select_ac(self, contexts):
+        if self.is_EXR:
+            return self.base_model(contexts)
+        else:
+            return self.base_model(self.B_hat.T @ contexts)
+
+    def update(self, reward):
+        self.base_model.update(reward)
+
+    def check_alpha_cover(self, B):
+        #TODO: implement here
+        return False
+        
+    def reset(self):
+        T = self.input_dict["T"]
+        d = self.input_dict["d"]
+        m = self.input_dict["m"]
+        PMA_n_expert = self.input_dict["PMA_n_expert"]
+
+        is_first_round = sum(self.expert_losses)==0
+        if is_first_round:
+            self.q = [1/PMA_n_expert]*PMA_n_expert # distribution to sample the expert
+        else:
+            if self.is_EXR: # Update self.q here
+                for i in range(PMA_n_expert):
+                    if self.check_alpha_cover(self.expert_list[i]):
+                        C_i = self.C_hit
+                    else:
+                        C_i = self.C_miss
+                    l_i = (C_i - self.C_hit)/self.p
+                    self.expert_losses[i] += l_i
+                tmp = np.copy(self.expert_losses)
+                tmp = np.exp(tmp)
+                self.q = tmp/sum(tmp)
+
+        expert_idx = np.random.choice(PMA_n_expert, p=self.q)
+        self.B_hat = self.expert_list(expert_idx)
+
+        self.is_EXR = np.random.binomial(n=1, p=self.p)
+        #TODO: change to PEGE (PHE?) with tau_1, tau_2 above
+        if self.is_EXR:
+            self.base_model = UCB(d=d, alpha=self.alpha, lam=self.lam)
+        else:
+            self.base_model = UCB(d=m, alpha=self.alpha, lam=self.lam)
