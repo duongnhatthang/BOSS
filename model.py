@@ -33,6 +33,14 @@ class TS:
         a_t=np.argmax(est)
         self.X_a=contexts[a_t]
         return(a_t)
+    
+    def select_ctx(self, contexts):
+        """
+        Instead of returning an index of the context chosen from contexts,
+        returning a customized context
+        """
+        a_t = self.select_ac(contexts)
+        return contexts[a_t]
 
     def update(self,reward):
         self.f=self.f+reward*self.X_a
@@ -63,6 +71,14 @@ class UCB:
         a_t = np.argmax(ucbs)
         self.X_a = contexts[a_t]
         return(a_t)
+    
+    def select_ctx(self, contexts):
+        """
+        Instead of returning an index of the context chosen from contexts,
+        returning a customized context
+        """
+        a_t = self.select_ac(contexts)
+        return contexts[a_t]
 
     def update(self,reward):
         self.Binv = sherman_morrison(self.X_a, self.Binv)
@@ -75,7 +91,7 @@ class UCB:
         self.theta_hat = np.zeros(self.d)
 
 '''
-PHE
+PHE (Perturbed-History Exploration ?)
 '''
 class PHE:
     def __init__(self, d, alpha, lam=1):
@@ -91,6 +107,14 @@ class PHE:
         self.X_a = contexts[a_t]
         self.context_list.append(self.X_a)
         return(a_t)
+    
+    def select_ctx(self, contexts):
+        """
+        Instead of returning an index of the context chosen from contexts,
+        returning a customized context
+        """
+        a_t = self.select_ac(contexts)
+        return contexts[a_t]
 
     def update(self,reward):
         self.reward_list.append(reward[0])
@@ -108,6 +132,47 @@ class PHE:
         self.theta_hat = np.zeros(self.d)
         self.context_list = []
         self.reward_list = []
+
+'''
+PEGE
+'''
+class PEGE:
+    def __init__(self, d, tau_1, EXR_contexts=None, lam=1):
+        self.tau_1=tau_1
+        self.d=d
+        self.lam=lam
+        self.settings = {'tau_1': self.tau_1}
+        self.EXR_contexts=EXR_contexts
+        self.reset()
+
+    def select_ctx(self, contexts):
+        if self.step <= self.tau_1:
+            if self.EXR_contexts is None:
+                self.X_a = np.random.uniform(low=-1, high=1, size=self.d)
+                u = np.random.uniform(0,1) #Scaling factor
+                self.X_a = u*self.X_a/np.linalg.norm(self.X_a) #ensure unit ball length
+            else:
+                idx = self.step % len(self.EXR_contexts)
+                self.X_a = self.EXR_contexts[idx]
+        else:
+            scores = np.array([np.dot(X, self.theta_hat) for X in contexts])
+            a_t = np.argmax(scores)
+            self.X_a = contexts[a_t]
+        self.context_list.append(self.X_a)
+        self.step += 1
+        return self.X_a 
+
+    def update(self,reward):
+        if self.step <= self.tau_1:
+            self.Binv = sherman_morrison(self.X_a, self.Binv)
+            self.yx = self.yx+reward*self.X_a
+            self.theta_hat = self.Binv @ self.yx
+
+    def reset(self):
+        self.yx=np.zeros(self.d)
+        self.Binv=self.lam*np.eye(self.d)
+        self.theta_hat = np.zeros(self.d)
+        self.step = 0
 
 '''
 PMA

@@ -40,9 +40,12 @@ def _eval_one_sim(input_dict, model,theta, sim_idx, elapsed_time, theta_err):
         opt_reward.append(np.amax(np.array(contexts) @ theta))
         # time
         start = time.time()
-        a_t = model.select_ac(contexts)
-        reward = np.dot(contexts[a_t],theta) + np.random.normal(0, noise_std, size=1)
-        model_reward.append(np.dot(contexts[a_t],theta))
+        # a_t = model.select_ac(contexts)
+        # reward = np.dot(contexts[a_t],theta) + np.random.normal(0, noise_std, size=1)
+        # model_reward.append(np.dot(contexts[a_t],theta))
+        X_t = model.select_ctx(contexts)
+        reward = np.dot(X_t,theta) + np.random.normal(0, noise_std, size=1)
+        model_reward.append(np.dot(X_t,theta))
         model.update(reward)
         elapsed_time[sim_idx,t] = time.time() - start
         theta_err[sim_idx,t] = np.linalg.norm(model.theta_hat-theta)
@@ -83,7 +86,7 @@ def eval(input_dict):
         theta_err = np.zeros((n_sim,T))
         elapsed_time = np.zeros((n_sim,T))
         for sim_idx in range(n_sim):
-            print('%s Simulation %d, N=%d, d=%d, alpha=%.3f' % (name, sim_idx+1, n_gen_context, d, param))
+            print('%s Simulation %d, N=%d, d=%d, param=%.3f' % (name, sim_idx+1, n_gen_context, d, param))
             # call model
             if name=="UCB":
                 model = UCB(d=d, alpha=param)
@@ -91,6 +94,8 @@ def eval(input_dict):
                 model = TS(d=d, v=param)
             elif name=="PHE":
                 model = PHE(d=d, alpha=param)
+            elif name=="PEGE":
+                model = PHE(d=d, tau_1=param)
 
             if seed is not None:
                 np.random.seed(seed+sim_idx)
