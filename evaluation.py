@@ -1,10 +1,8 @@
 import numpy as np
 from tqdm import trange
-from model import UCB, TS, PHE
 from data import generate_contexts
 import time, json, itertools
 from scipy.stats import ortho_group
-
 import logging
 import sys
 date_strftime_format = "%Y-%m-%y %H:%M:%S"
@@ -15,7 +13,8 @@ logging.basicConfig(stream=sys.stdout,
 
 # Creating an object
 logger = logging.getLogger()
-logger.disabled = True
+# logger.disabled = True
+from model import UCB, TS, PHE, PEGE, PMA
 
 MODE_RANDOM = 0
 MODE_ADVERSARY = 1
@@ -62,8 +61,12 @@ def _post_process(input_dict, results):
         for result in results: #Iters over different params
             if name == 'TS':
                 v = result['settings']['v']
-            else:
+            elif name == 'PEGE':
+                v = result['settings']['tau_1']
+            elif name == 'UCB' or  name == 'PHE':
                 alpha = result['settings']['alpha']
+            else:
+                pass
             last_regret.append(np.mean(result['regrets'], axis=0)[-1])
         best = results[np.argmin(last_regret)]
         return best
@@ -95,7 +98,7 @@ def eval(input_dict):
             elif name=="PHE":
                 model = PHE(d=d, alpha=param)
             elif name=="PEGE":
-                model = PHE(d=d, tau_1=param)
+                model = PEGE(d=d, tau_1=param)
 
             if seed is not None:
                 np.random.seed(seed+sim_idx)
@@ -125,11 +128,19 @@ def eval_multi(input_dict):
 
     results = []
     for param in params_set:
-        cumul_regret_all = np.zeros((n_sim,T,n_task))
+        cumul_regret_all = np.zeros((n_sim,n_task))
+        # cumul_regret_all = np.zeros((n_sim,T,n_task))
         theta_err_all = np.zeros((n_sim,T,n_task))
         elapsed_time_all = np.zeros((n_sim,T,n_task))
+
         for sim_idx in range(n_sim):
-            print('%s Simulation %d, N_gen_ctx=%d, d=%d, alpha=%.3f' % (name, sim_idx+1, n_gen_context, d, param))
+            print('%s Simulation %d, N_gen_ctx=%d, d=%d' % (name, sim_idx+1, n_gen_context, d))
+            if seed is not None:
+                np.random.seed(seed+sim_idx)
+            n_revealed=0
+            B = ortho_group.rvs(dim=d)
+            B = np.array(B)[:,:m]
+
             # call model
             if name=="UCB":
                 model = UCB(d=d, alpha=param)
@@ -137,27 +148,31 @@ def eval_multi(input_dict):
                 model = TS(d=d, v=param)
             elif name=="PHE":
                 model = PHE(d=d, alpha=param)
+            elif name=="PEGE":
+                model = PEGE(d=d, tau_1=param)
+            elif name=="PMA":
+                model = PMA(input_dict=input_dict, true_B=B)
 
-            if seed is not None:
-                np.random.seed(seed+sim_idx)
-            n_revealed=0
-            B = ortho_group.rvs(dim=d)
-            B = np.array(B)[:,:m]
+            task_regret = np.zeros((n_task,))
             for task_idx in trange(n_task):
                 theta_err_i = theta_err_all[:,:,task_idx]
                 elapsed_time_i = elapsed_time_all[:,:,task_idx]
                 theta, n_revealed = gen_params(B, input_dict, task_idx, n_revealed)
+                # logger.info(f"theta = {theta}")
                 opt_reward, model_reward = _eval_one_sim(input_dict, model, theta, sim_idx, elapsed_time_i, theta_err_i)
-                cumul_regret_all[sim_idx,:,task_idx] = np.cumsum(opt_reward)-np.cumsum(model_reward)
+                # cumul_regret_all[sim_idx,:,task_idx] = np.cumsum(opt_reward)-np.cumsum(model_reward)
+                task_regret[task_idx] = sum(opt_reward)-sum(model_reward)
                 model.reset()
+            cumul_regret_all[sim_idx,:] = np.cumsum(task_regret)
         results.append({'model':name,
                         'settings':model.settings,
-                        'regrets_all':cumul_regret_all,
-                        'theta_err_all':theta_err_all,
-                        'time_all':elapsed_time_all,
-                        'regrets':cumul_regret_all.mean(axis=1),
-                        'theta_err':theta_err_all.mean(axis=1),
-                        'time':elapsed_time_all.mean(axis=1)})
+                        'regrets':cumul_regret_all,
+                        'theta_err':theta_err_all,
+                        'time':elapsed_time_all,
+                        # 'regrets':cumul_regret_all.mean(axis=1), #TODO: double-check these 3 later
+                        # 'theta_err':theta_err_all.mean(axis=1),
+                        # 'time':elapsed_time_all.mean(axis=1)
+                        })
     return _post_process(input_dict, results)
 
 def gen_params(B, input_dict, task_idx, n_revealed):
@@ -166,20 +181,20 @@ def gen_params(B, input_dict, task_idx, n_revealed):
         u = np.random.uniform(0,1) #Scaling factor
         theta = B @ w_i
         theta = u*theta/np.linalg.norm(theta) #ensure unit ball length
-        return theta
+        return theta, u*w_i
 
     T = input_dict["T"]
     d = input_dict["d"]
     m = input_dict["m"]
     n_task = input_dict["n_task"]
-    adv_const = input_dict["adv_const"]
+    adv_exr_const = input_dict["adv_exr_const"]
     mode = input_dict["mode"]
     if mode == MODE_RANDOM:
         theta = _gen_params_from_B(B, m)
-        logger.info(f"Random theta={theta}")
+        # logger.info(f"Random theta={theta}")
     else:
         if mode == MODE_ADVERSARY:
-            q = adv_const*(d-m)/((np.sqrt(T)-m)*(1+np.sqrt(2*(n_task-task_idx-1)))) #probability of revealing a new dimension
+            q = adv_exr_const*(d-m)/((np.sqrt(T)-m)*(1+np.sqrt(2*(n_task-task_idx-1)))) #probability of revealing a new dimension
             q = min(q,1)
         else: # MODE_ADV_TASK_DIVERSITY
             q = 1
@@ -188,6 +203,8 @@ def gen_params(B, input_dict, task_idx, n_revealed):
             n_revealed = min(n_revealed+1,m)
         low_rank_B = np.copy(B)
         low_rank_B[:, n_revealed:] = 0
-        theta = _gen_params_from_B(low_rank_B, m)
-        logger.info(f"Adversary reveal prob: q={q}, n_revealed={n_revealed}/{m}, theta={theta}")
+        theta, w_i = _gen_params_from_B(low_rank_B, m)
+        input_dict["theta"]=theta #For debug only
+        input_dict["w_i"]=w_i
+        # logger.info(f"Adversary reveal prob: q={q}, n_revealed={n_revealed}/{m}, theta={theta}")
     return theta, n_revealed
