@@ -39,9 +39,6 @@ def _eval_one_sim(input_dict, model,theta, sim_idx, elapsed_time, theta_err):
         opt_reward.append(np.amax(np.array(contexts) @ theta))
         # time
         start = time.time()
-        # a_t = model.select_ac(contexts)
-        # reward = np.dot(contexts[a_t],theta) + np.random.normal(0, noise_std, size=1)
-        # model_reward.append(np.dot(contexts[a_t],theta))
         X_t = model.select_ctx(contexts)
         reward = np.dot(X_t,theta) + np.random.normal(0, noise_std, size=1)
         model_reward.append(np.dot(X_t,theta))
@@ -129,7 +126,6 @@ def eval_multi(input_dict):
     results = []
     for param in params_set:
         cumul_regret_all = np.zeros((n_sim,n_task))
-        # cumul_regret_all = np.zeros((n_sim,T,n_task))
         theta_err_all = np.zeros((n_sim,T,n_task))
         elapsed_time_all = np.zeros((n_sim,T,n_task))
 
@@ -158,9 +154,7 @@ def eval_multi(input_dict):
                 theta_err_i = theta_err_all[:,:,task_idx]
                 elapsed_time_i = elapsed_time_all[:,:,task_idx]
                 theta, n_revealed = gen_params(B, input_dict, task_idx, n_revealed)
-                # logger.info(f"theta = {theta}")
                 opt_reward, model_reward = _eval_one_sim(input_dict, model, theta, sim_idx, elapsed_time_i, theta_err_i)
-                # cumul_regret_all[sim_idx,:,task_idx] = np.cumsum(opt_reward)-np.cumsum(model_reward)
                 task_regret[task_idx] = sum(opt_reward)-sum(model_reward)
                 model.reset()
             cumul_regret_all[sim_idx,:] = np.cumsum(task_regret)
@@ -169,9 +163,6 @@ def eval_multi(input_dict):
                         'regrets':cumul_regret_all,
                         'theta_err':theta_err_all,
                         'time':elapsed_time_all,
-                        # 'regrets':cumul_regret_all.mean(axis=1), #TODO: double-check these 3 later
-                        # 'theta_err':theta_err_all.mean(axis=1),
-                        # 'time':elapsed_time_all.mean(axis=1)
                         })
     return _post_process(input_dict, results)
 
