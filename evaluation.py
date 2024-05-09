@@ -14,7 +14,7 @@ logging.basicConfig(stream=sys.stdout,
 # Creating an object
 logger = logging.getLogger()
 # logger.disabled = True
-from model import UCB, TS, PHE, PEGE, PMA
+from model import UCB, TS, PHE, PEGE, PMA, UCB_oracle, PEGE_oracle, SeqRepL
 
 MODE_RANDOM = 0
 MODE_ADVERSARY = 1
@@ -27,6 +27,7 @@ def _eval_one_sim(input_dict, model,theta, sim_idx, elapsed_time, theta_err):
     rho = input_dict["rho"]
     noise_std = input_dict["noise_std"]
     seed = input_dict["seed"]
+    unit_ball_action = input_dict["unit_ball_action"]
     opt_reward = []
     model_reward = []
 
@@ -34,12 +35,22 @@ def _eval_one_sim(input_dict, model,theta, sim_idx, elapsed_time, theta_err):
         # generate contexts
         if seed is not None:
             seed=seed+t+sim_idx
-        contexts = generate_contexts(n_gen_context, d, rho, seed=seed)
-        # optimal reward
-        opt_reward.append(np.amax(np.array(contexts) @ theta))
-        # time
-        start = time.time()
-        X_t = model.select_ctx(contexts)
+        if unit_ball_action:
+            # optimal reward
+            opt_a = theta/np.linalg.norm(theta)
+            opt_reward.append(opt_a.T @ theta)
+
+            # time
+            start = time.time()
+            X_t = model.select_ctx_without_ctx()
+        else:
+            contexts = generate_contexts(n_gen_context, d, rho, seed=seed)
+            # optimal reward
+            opt_reward.append(np.amax(np.array(contexts) @ theta))
+
+            # time
+            start = time.time()
+            X_t = model.select_ctx(contexts)
         reward = np.dot(X_t,theta) + np.random.normal(0, noise_std, size=1)
         model_reward.append(np.dot(X_t,theta))
         model.update(reward)
@@ -57,15 +68,17 @@ def _post_process(input_dict, results):
         last_regret = []
         for result in results: #Iters over different params
             if name == 'TS':
-                v = result['settings']['v']
+                v = result['others']['v']
             elif name == 'PEGE':
-                v = result['settings']['tau_1']
-            elif name == 'UCB' or  name == 'PHE':
-                alpha = result['settings']['alpha']
+                v = result['others']['tau_1']
+            elif name == 'UCB' or  name == 'PHE' or  name == 'UCB_oracle':
+                alpha = result['others']['alpha']
             else:
                 pass
             last_regret.append(np.mean(result['regrets'], axis=0)[-1])
-        best = results[np.argmin(last_regret)]
+        idx = np.argmin(last_regret)
+        logger.info(f"idx of params chosen: {idx}")
+        best = results[idx]
         return best
     else:
         # Save to txt file
@@ -126,6 +139,7 @@ def eval_multi(input_dict):
     results = []
     for param in params_set:
         cumul_regret_all = np.zeros((n_sim,n_task))
+        B_hat_err = np.zeros((n_sim,n_task))
         theta_err_all = np.zeros((n_sim,T,n_task))
         elapsed_time_all = np.zeros((n_sim,T,n_task))
 
@@ -148,8 +162,15 @@ def eval_multi(input_dict):
                 model = PEGE(d=d, tau_1=param)
             elif name=="PMA":
                 model = PMA(input_dict=input_dict, true_B=B)
+            elif name=="UCB_oracle":
+                model = UCB_oracle(d=d, m=m, alpha=param, true_B=B)
+            elif name=="PEGE_oracle":
+                model = PEGE_oracle(tau_1=param, true_B=B)
+            elif name=="SeqRepL":
+                model = SeqRepL(input_dict=input_dict)
 
             task_regret = np.zeros((n_task,))
+            theta_list = []
             for task_idx in trange(n_task):
                 theta_err_i = theta_err_all[:,:,task_idx]
                 elapsed_time_i = elapsed_time_all[:,:,task_idx]
@@ -157,9 +178,17 @@ def eval_multi(input_dict):
                 opt_reward, model_reward = _eval_one_sim(input_dict, model, theta, sim_idx, elapsed_time_i, theta_err_i)
                 task_regret[task_idx] = sum(opt_reward)-sum(model_reward)
                 model.reset()
+                theta_list.append(theta)
             cumul_regret_all[sim_idx,:] = np.cumsum(task_regret)
+            if name=="SeqRepL" or name=="PMA":
+                for i, B_hat in enumerate(model.others):
+                    B_perp_B_perp_transpose = np.eye(d) - B_hat @ B_hat.T
+                    U, S, Vh = np.linalg.svd(B_perp_B_perp_transpose, full_matrices=True)
+                    B_perp = U[:,:d-m]
+                    B_hat_err[sim_idx,i] = np.linalg.norm(B_perp.T @ theta_list[i])
         results.append({'model':name,
-                        'settings':model.settings,
+                        'others':model.others,
+                        'B_hat_err':B_hat_err,
                         'regrets':cumul_regret_all,
                         'theta_err':theta_err_all,
                         'time':elapsed_time_all,
@@ -182,7 +211,6 @@ def gen_params(B, input_dict, task_idx, n_revealed):
     mode = input_dict["mode"]
     if mode == MODE_RANDOM:
         theta = _gen_params_from_B(B, m)
-        # logger.info(f"Random theta={theta}")
     else:
         if mode == MODE_ADVERSARY:
             q = adv_exr_const*(d-m)/((np.sqrt(T)-m)*(1+np.sqrt(2*(n_task-task_idx-1)))) #probability of revealing a new dimension
@@ -197,5 +225,4 @@ def gen_params(B, input_dict, task_idx, n_revealed):
         theta, w_i = _gen_params_from_B(low_rank_B, m)
         input_dict["theta"]=theta #For debug only
         input_dict["w_i"]=w_i
-        # logger.info(f"Adversary reveal prob: q={q}, n_revealed={n_revealed}/{m}, theta={theta}")
     return theta, n_revealed
