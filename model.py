@@ -424,6 +424,17 @@ class PMA(BOSS_protocol):
         assert self.tau_1 >= d, f"tau_1 ({round(self.tau_1)}) < d ({d})"
         self.alpha = self.input_dict["PMA_alpha_const"]*d/np.sqrt(self.tau_1)
         self.C_hit = self.tau_2+T*(m**2/self.tau_2 + self.alpha**2)
+        C_info = self.tau_1+T*(d**2/self.tau_1 + self.alpha**2)
+
+        if self.C_hit > self.C_miss:
+            c = np.ceil(self.C_hit/self.C_miss)
+            self.C_miss*=c
+        if C_info > self.C_miss:
+            c = np.ceil(C_info/self.C_miss)
+            self.C_miss*=c
+        assert self.C_hit <= self.C_miss, f"self.C_hit ({round(self.C_hit)}) > self.C_miss ({self.C_miss})"
+        assert self.C_hit <= C_info, f"self.C_hit ({round(self.C_hit)}) > C_info ({C_info})"
+        assert C_info <= self.C_miss, f"C_info ({round(C_info)}) > self.C_miss ({self.C_miss})"
 
         self.expert_list = []
         for _ in range(input_dict["PMA_n_expert"]-1):
@@ -446,6 +457,7 @@ class PMA(BOSS_protocol):
     def check_alpha_cover(self, B):
         w_opt = B.T @ self.theta_hat # OLS solution
         err = np.linalg.norm(self.theta_hat - B @ w_opt)
+        # print(f"err={err}, alpha={self.alpha}")
         return err <= self.alpha
 
     def update_B_hat(self):
@@ -469,17 +481,21 @@ class PMA(BOSS_protocol):
                     elif all_loss_equal == True and tmp!=l_i:
                         all_loss_equal = False
                 if all_loss_equal:
-                    logger.info("Warning: check_alpha_cover fails (covers all experts). Decrease PMA_alpha_const.")
-                tmp0 = np.copy(self.expert_losses)
-                tmp1 = tmp0-min(tmp0) #prevent overflow
-                tmp2 = np.exp(-self.lr*tmp1)
-                self.q = tmp2/sum(tmp2)
+                    if l_i == 0:
+                        logger.info(f"Warning: check_alpha_cover fails (covers all experts) l={l_i}. Decrease PMA_alpha_const.")
+                    else:
+                        logger.info(f"Warning: check_alpha_cover fails (rejects all experts) l={l_i}. Increase PMA_alpha_const.")
+                else:
+                    tmp0 = np.copy(self.expert_losses)
+                    tmp1 = tmp0-min(tmp0) #prevent overflow
+                    tmp2 = np.exp(-self.lr*tmp1)
+                    self.q = tmp2/sum(tmp2)
 
         expert_idx = np.random.choice(PMA_n_expert, p=self.q)
         self.B_hat = self.expert_list[expert_idx]
         entropy_q = entropy(self.q)
         if entropy_q == entropy([1/PMA_n_expert]*PMA_n_expert):
-            logger.info("Warning: PMA's expert dist is still uniform. Increase PMA_exr_const or PMA_tau1_const?")
+            logger.info("Warning: PMA's expert dist is still uniform. Reduce PMA_alpha_const or increase PMA_tau1_const")
         if self.input_dict["PMA_no_oracle"]==False and self.q[-1]<0.9 and self.input_dict["PMA_n_expert"]<21:
             logger.info(f"entropy_q = {round(entropy_q)}, q_true={round(self.q[-1])}")
 

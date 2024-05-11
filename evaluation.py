@@ -170,7 +170,7 @@ def eval_multi(input_dict):
                 model = SeqRepL(input_dict=input_dict)
 
             task_regret = np.zeros((n_task,))
-            theta_list = []
+            # theta_list = []
             for task_idx in trange(n_task):
                 theta_err_i = theta_err_all[:,:,task_idx]
                 elapsed_time_i = elapsed_time_all[:,:,task_idx]
@@ -178,14 +178,15 @@ def eval_multi(input_dict):
                 opt_reward, model_reward = _eval_one_sim(input_dict, model, theta, sim_idx, elapsed_time_i, theta_err_i)
                 task_regret[task_idx] = sum(opt_reward)-sum(model_reward)
                 model.reset()
-                theta_list.append(theta)
+                # theta_list.append(theta)
             cumul_regret_all[sim_idx,:] = np.cumsum(task_regret)
             if name=="SeqRepL" or name=="PMA":
                 for i, B_hat in enumerate(model.others):
                     B_perp_B_perp_transpose = np.eye(d) - B_hat @ B_hat.T
                     U, S, Vh = np.linalg.svd(B_perp_B_perp_transpose, full_matrices=True)
                     B_perp = U[:,:d-m]
-                    B_hat_err[sim_idx,i] = np.linalg.norm(B_perp.T @ theta_list[i])
+                    # B_hat_err[sim_idx,i] = np.linalg.norm(B_perp.T @ theta_list[i])
+                    B_hat_err[sim_idx,i] = np.linalg.norm(B_perp.T @ B)
         results.append({'model':name,
                         'others':model.others,
                         'B_hat_err':B_hat_err,
@@ -217,12 +218,14 @@ def gen_params(B, input_dict, task_idx, n_revealed):
             q = min(q,1)
         else: # MODE_ADV_TASK_DIVERSITY
             q = 1
-        reveal_new = np.random.binomial(n=1, p=q)
-        if reveal_new==1 or n_revealed==0:
-            n_revealed = min(n_revealed+1,m)
+        if n_revealed < m:
+            reveal_new = np.random.binomial(n=1, p=q)
+            if reveal_new==1 or n_revealed==0:
+                n_revealed = min(n_revealed+1,m)
+                logger.info(f"==== [Adv reveals] {n_revealed}/{m} dims with prob q = {q}")
         low_rank_B = np.copy(B)
         low_rank_B[:, n_revealed:] = 0
         theta, w_i = _gen_params_from_B(low_rank_B, m)
-        input_dict["theta"]=theta #For debug only
-        input_dict["w_i"]=w_i
+        # input_dict["theta"]=theta #For debug only
+        # input_dict["w_i"]=w_i
     return theta, n_revealed
