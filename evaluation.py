@@ -21,7 +21,6 @@ MODE_ADVERSARY = 1
 MODE_ADV_TASK_DIVERSITY = 2
 
 def _eval_one_sim(input_dict, model,theta, sim_idx, elapsed_time, theta_err):
-    n_gen_context = input_dict["n_gen_context"]
     T = input_dict["T"]
     d = input_dict["d"]
     rho = input_dict["rho"]
@@ -44,6 +43,7 @@ def _eval_one_sim(input_dict, model,theta, sim_idx, elapsed_time, theta_err):
             start = time.time()
             X_t = model.select_ctx_without_ctx()
         else:
+            n_gen_context = input_dict["n_gen_context"]
             contexts = generate_contexts(n_gen_context, d, rho, seed=seed)
             # optimal reward
             opt_reward.append(np.amax(np.array(contexts) @ theta))
@@ -62,7 +62,6 @@ def _post_process(input_dict, results):
     output = input_dict["output"]
     d = input_dict["d"]
     name = input_dict["name"]
-    n_gen_context = input_dict["n_gen_context"]
     if output:
         # Plotting
         last_regret = []
@@ -81,13 +80,16 @@ def _post_process(input_dict, results):
         best = results[idx]
         return best
     else:
+        # n_gen_context = input_dict["n_gen_context"]
         # Save to txt file
-        with open('./results/{%s}_d%d_N%d.txt' % (name, d, n_gen_context), 'w+') as outfile:
+        # with open('./results/{%s}_d%d_N%d.txt' % (name, d, n_gen_context), 'w+') as outfile:
+        #     json.dump(results, outfile)
+        with open('./results/{%s}_d%d.txt' % (name, d), 'w+') as outfile:
             json.dump(results, outfile)
 
 def eval(input_dict):
     name = input_dict["name"]
-    n_gen_context = input_dict["n_gen_context"]
+    # n_gen_context = input_dict["n_gen_context"]
     params_set = input_dict["params_set"]
     T = input_dict["T"]
     d = input_dict["d"]
@@ -99,7 +101,8 @@ def eval(input_dict):
         theta_err = np.zeros((n_sim,T))
         elapsed_time = np.zeros((n_sim,T))
         for sim_idx in range(n_sim):
-            print('%s Simulation %d, N=%d, d=%d, param=%.3f' % (name, sim_idx+1, n_gen_context, d, param))
+            print('%s Simulation %d, d=%d, param=%.3f' % (name, sim_idx+1, d, param))
+            # print('%s Simulation %d, N=%d, d=%d, param=%.3f' % (name, sim_idx+1, n_gen_context, d, param))
             # call model
             if name=="UCB":
                 model = UCB(d=d, alpha=param)
@@ -127,7 +130,7 @@ def eval(input_dict):
 def eval_multi(input_dict):
     #inputs: n_sim, n_gen_context, d, T, rho, seed, B(bound for the theta)
     name = input_dict["name"]
-    n_gen_context = input_dict["n_gen_context"]
+    # n_gen_context = input_dict["n_gen_context"]
     params_set = input_dict["params_set"]
     T = input_dict["T"]
     d = input_dict["d"]
@@ -140,11 +143,13 @@ def eval_multi(input_dict):
     for param in params_set:
         cumul_regret_all = np.zeros((n_sim,n_task))
         B_hat_err = np.zeros((n_sim,n_task))
+        theta_hat_err = np.zeros((n_sim,n_task))
         theta_err_all = np.zeros((n_sim,T,n_task))
         elapsed_time_all = np.zeros((n_sim,T,n_task))
 
         for sim_idx in range(n_sim):
-            print('%s Simulation %d, N_gen_ctx=%d, d=%d' % (name, sim_idx+1, n_gen_context, d))
+            print('%s Simulation %d, d=%d' % (name, sim_idx+1, d))
+            # print('%s Simulation %d, N_gen_ctx=%d, d=%d' % (name, sim_idx+1, n_gen_context, d))
             if seed is not None:
                 np.random.seed(seed+sim_idx)
             n_revealed=0
@@ -170,26 +175,31 @@ def eval_multi(input_dict):
                 model = SeqRepL(input_dict=input_dict)
 
             task_regret = np.zeros((n_task,))
-            # theta_list = []
+            B_list = []
+            theta_list = []
             for task_idx in trange(n_task):
                 theta_err_i = theta_err_all[:,:,task_idx]
                 elapsed_time_i = elapsed_time_all[:,:,task_idx]
-                theta, n_revealed = gen_params(B, input_dict, task_idx, n_revealed)
+                theta, n_revealed, B_n = gen_params(B, input_dict, task_idx, n_revealed)
                 opt_reward, model_reward = _eval_one_sim(input_dict, model, theta, sim_idx, elapsed_time_i, theta_err_i)
                 task_regret[task_idx] = sum(opt_reward)-sum(model_reward)
                 model.reset()
-                # theta_list.append(theta)
+                B_list.append(B_n)
+                theta_list.append(theta)
             cumul_regret_all[sim_idx,:] = np.cumsum(task_regret)
             if name=="SeqRepL" or name=="PMA":
                 for i, B_hat in enumerate(model.others):
                     B_perp_B_perp_transpose = np.eye(d) - B_hat @ B_hat.T
                     U, S, Vh = np.linalg.svd(B_perp_B_perp_transpose, full_matrices=True)
                     B_perp = U[:,:d-m]
-                    # B_hat_err[sim_idx,i] = np.linalg.norm(B_perp.T @ theta_list[i])
-                    B_hat_err[sim_idx,i] = np.linalg.norm(B_perp.T @ B)
+                    B_hat_err[sim_idx,i] = np.linalg.norm(B_perp.T @ B_list[i])
+                    # B_hat_err[sim_idx,i] = np.linalg.norm(B_perp.T @ B)
+                for i, theta_hat_hat in enumerate(model.theta_hat_list):
+                    theta_hat_err[sim_idx,i] = np.linalg.norm(theta_hat_hat - theta_list[i])
         results.append({'model':name,
                         'others':model.others,
                         'B_hat_err':B_hat_err,
+                        'theta_hat_err':theta_hat_err,
                         'regrets':cumul_regret_all,
                         'theta_err':theta_err_all,
                         'time':elapsed_time_all,
@@ -212,15 +222,21 @@ def gen_params(B, input_dict, task_idx, n_revealed):
     mode = input_dict["mode"]
     if mode == MODE_RANDOM:
         theta = _gen_params_from_B(B, m)
+        low_rank_B = B
     else:
         if mode == MODE_ADVERSARY:
             q = adv_exr_const*(d-m)/((np.sqrt(T)-m)*(1+np.sqrt(2*(n_task-task_idx-1)))) #probability of revealing a new dimension
             q = min(q,1)
         else: # MODE_ADV_TASK_DIVERSITY
             q = 1
-        if n_revealed < m:
-            reveal_new = np.random.binomial(n=1, p=q)
-            if reveal_new==1 or n_revealed==0:
+        if input_dict["adv_exr_task"] is None:
+            if n_revealed < m:
+                reveal_new = np.random.binomial(n=1, p=q)
+                if reveal_new==1 or n_revealed==0:
+                    n_revealed = min(n_revealed+1,m)
+                    logger.info(f"==== [Adv reveals] {n_revealed}/{m} dims with prob q = {q}")
+        else: # Reveal at tasks in input_dict["adv_exr_task"]
+            if task_idx in input_dict["adv_exr_task"]:
                 n_revealed = min(n_revealed+1,m)
                 logger.info(f"==== [Adv reveals] {n_revealed}/{m} dims with prob q = {q}")
         low_rank_B = np.copy(B)
@@ -228,4 +244,4 @@ def gen_params(B, input_dict, task_idx, n_revealed):
         theta, w_i = _gen_params_from_B(low_rank_B, m)
         # input_dict["theta"]=theta #For debug only
         # input_dict["w_i"]=w_i
-    return theta, n_revealed
+    return theta, n_revealed, low_rank_B

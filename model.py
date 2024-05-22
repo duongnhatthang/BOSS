@@ -403,6 +403,9 @@ class BOSS_protocol:
         else:
             self.base_model = PEGE(d=m, tau_1=self.tau_2, lam=self.lam)
         self.is_first_round = False
+
+        if self.input_dict["fixed_params"] is not None: #For comparison between BOSS and SeqRepL
+            self.p, self.tau_1, self.tau_2 = self.input_dict["fixed_params"]
 '''
 PMA
 '''
@@ -417,6 +420,7 @@ class PMA(BOSS_protocol):
         m = self.input_dict["m"]
         n_task = self.input_dict["n_task"]
         self.others = []
+        self.theta_hat_list = []
 
         self.C_miss = T
         self.tau_1 = self.input_dict["PMA_tau1_const"]*d**(4/3)*T**(1/3)
@@ -501,6 +505,7 @@ class PMA(BOSS_protocol):
 
         if self.is_first_round is False:
             self.others.append(self.B_hat)
+            self.theta_hat_list.append(self.theta_hat)
 
 '''
 SeqRepL
@@ -510,6 +515,7 @@ class SeqRepL(BOSS_protocol):
         super().__init__(input_dict, input_dict["SeqRepL_tau2_const"], input_dict["SeqRepL_stop_exr"])
         self.lam=lam
         self.others = []
+        self.theta_hat_list = []
         self.input_dict=input_dict
         T = self.input_dict["T"]
         d = self.input_dict["d"]
@@ -534,3 +540,14 @@ class SeqRepL(BOSS_protocol):
 
         if self.is_first_round==False:
             self.others.append(self.B_hat)
+            self.theta_hat_list.append(self.theta_hat)
+
+    def reset(self):
+        super().reset()
+        if self.input_dict["SeqRepL_exr_list"] is not None:
+            if self.task_idx in self.input_dict["SeqRepL_exr_list"]:
+                self.is_EXR = True
+                self.base_model = PEGE(d=self.input_dict["d"], tau_1=self.tau_1, lam=self.lam)
+            else:
+                self.is_EXR = False
+                self.base_model = PEGE(d=self.input_dict["m"], tau_1=self.tau_2, lam=self.lam)
