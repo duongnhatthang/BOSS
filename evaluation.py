@@ -17,8 +17,9 @@ logger = logging.getLogger()
 from model import UCB, TS, PHE, PEGE, PMA, UCB_oracle, PEGE_oracle, SeqRepL
 
 MODE_RANDOM = 0
-MODE_ADVERSARY = 1
+MODE_ADVERSARY_RANDOMIZE = 1
 MODE_ADV_TASK_DIVERSITY = 2
+MODE_ADVERSARY = 3
 
 def _eval_one_sim(input_dict, model,theta, sim_idx, elapsed_time, theta_err):
     T = input_dict["T"]
@@ -224,10 +225,10 @@ def gen_params(B, input_dict, task_idx, n_revealed):
         theta = _gen_params_from_B(B, m)
         low_rank_B = B
     else:
-        if mode == MODE_ADVERSARY:
+        if mode == MODE_ADVERSARY_RANDOMIZE:
             q = adv_exr_const*(d-m)/((np.sqrt(T)-m)*(1+np.sqrt(2*(n_task-task_idx-1)))) #probability of revealing a new dimension
             q = min(q,1)
-        else: # MODE_ADV_TASK_DIVERSITY
+        elif mode == MODE_ADV_TASK_DIVERSITY or mode == MODE_ADVERSARY:
             q = 1
         if input_dict["adv_exr_task"] is None:
             if n_revealed < m:
@@ -244,4 +245,14 @@ def gen_params(B, input_dict, task_idx, n_revealed):
         theta, w_i = _gen_params_from_B(low_rank_B, m)
         # input_dict["theta"]=theta #For debug only
         # input_dict["w_i"]=w_i
+        if mode==MODE_ADVERSARY: # if MODE_ADVERSARY, only reveal the first theta when SeqRepL explore
+            assert input_dict["SeqRepL_exr_list"] is not None, "Not init input_dict['SeqRepL_exr_list']"
+            low_rank_B_tmp = np.copy(low_rank_B)
+            if task_idx in input_dict["SeqRepL_exr_list"]:
+                low_rank_B_tmp[:, 1:] = 0
+            else:
+                if n_revealed>1:
+                    low_rank_B_tmp[:, 0] = 0
+            theta, w_i = _gen_params_from_B(low_rank_B_tmp, m)
+
     return theta, n_revealed, low_rank_B
