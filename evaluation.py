@@ -13,7 +13,7 @@ logging.basicConfig(stream=sys.stdout,
 
 # Creating an object
 logger = logging.getLogger()
-# logger.disabled = True
+logger.disabled = True
 from model import UCB, TS, PHE, PEGE, PMA, UCB_oracle, PEGE_oracle, SeqRepL
 
 MODE_RANDOM = 0
@@ -21,7 +21,7 @@ MODE_ADVERSARY_RANDOMIZE = 1
 MODE_ADV_TASK_DIVERSITY = 2
 MODE_ADVERSARY = 3
 
-def _eval_one_sim(input_dict, model,theta, sim_idx, elapsed_time, theta_err):
+def _eval_one_sim(input_dict, model, theta, sim_idx, elapsed_time, theta_err):
     T = input_dict["T"]
     d = input_dict["d"]
     rho = input_dict["rho"]
@@ -42,7 +42,7 @@ def _eval_one_sim(input_dict, model,theta, sim_idx, elapsed_time, theta_err):
 
             # time
             start = time.time()
-            X_t = model.select_ctx_without_ctx()
+            X_t = model.select_ctx_unit_ball_action_set()
         else:
             n_gen_context = input_dict["n_gen_context"]
             contexts = generate_contexts(n_gen_context, d, rho, seed=seed)
@@ -57,7 +57,7 @@ def _eval_one_sim(input_dict, model,theta, sim_idx, elapsed_time, theta_err):
         model.update(reward)
         elapsed_time[sim_idx,t] = time.time() - start
         theta_err[sim_idx,t] = np.linalg.norm(model.theta_hat-theta)
-    return opt_reward, model_reward
+    return opt_reward, model_reward, model.theta_hat
 
 def _post_process(input_dict, results):
     output = input_dict["output"]
@@ -103,7 +103,6 @@ def eval(input_dict):
         elapsed_time = np.zeros((n_sim,T))
         for sim_idx in range(n_sim):
             print('%s Simulation %d, d=%d, param=%.3f' % (name, sim_idx+1, d, param))
-            # print('%s Simulation %d, N=%d, d=%d, param=%.3f' % (name, sim_idx+1, n_gen_context, d, param))
             # call model
             if name=="UCB":
                 model = UCB(d=d, alpha=param)
@@ -118,7 +117,7 @@ def eval(input_dict):
                 np.random.seed(seed+sim_idx)
             # true theta
             theta = np.random.uniform(-1/np.sqrt(d),1/np.sqrt(d),d) #ensure unit ball length
-            opt_reward, model_reward = _eval_one_sim(input_dict, model, theta, sim_idx, elapsed_time, theta_err)
+            opt_reward, model_reward, theta_hat = _eval_one_sim(input_dict, model, theta, sim_idx, elapsed_time, theta_err)
 
             cumul_regret[sim_idx,:] = np.cumsum(opt_reward)-np.cumsum(model_reward)
         results.append({'model':name,
@@ -127,6 +126,11 @@ def eval(input_dict):
                         'theta_err':theta_err.tolist(),
                         'time':elapsed_time.tolist()})
     return _post_process(input_dict, results)
+
+def _cal_angle_err(theta, theta_hat):
+    v1_u = theta / np.linalg.norm(theta)
+    v2_u = theta_hat / np.linalg.norm(theta_hat)
+    return 1-np.clip(np.dot(v1_u, v2_u), -1.0, 1.0)
 
 def eval_multi(input_dict):
     #inputs: n_sim, n_gen_context, d, T, rho, seed, B(bound for the theta)
@@ -142,15 +146,16 @@ def eval_multi(input_dict):
 
     results = []
     for param in params_set:
-        cumul_regret_all = np.zeros((n_sim,n_task))
+        cumul_regret = np.zeros((n_sim,n_task))
         B_hat_err = np.zeros((n_sim,n_task))
         theta_hat_err = np.zeros((n_sim,n_task))
+        angle_err = np.zeros((n_sim,n_task))
         theta_err_all = np.zeros((n_sim,T,n_task))
         elapsed_time_all = np.zeros((n_sim,T,n_task))
+        cumul_regret_all = np.zeros((n_sim,T,n_task))
 
         for sim_idx in range(n_sim):
             print('%s Simulation %d, d=%d' % (name, sim_idx+1, d))
-            # print('%s Simulation %d, N_gen_ctx=%d, d=%d' % (name, sim_idx+1, n_gen_context, d))
             if seed is not None:
                 np.random.seed(seed+sim_idx)
             n_revealed=0
@@ -171,7 +176,7 @@ def eval_multi(input_dict):
             elif name=="UCB_oracle":
                 model = UCB_oracle(d=d, m=m, alpha=param, true_B=B)
             elif name=="PEGE_oracle":
-                model = PEGE_oracle(tau_1=param, true_B=B)
+                model = PEGE_oracle(true_B=B, tau_1=param)
             elif name=="SeqRepL":
                 model = SeqRepL(input_dict=input_dict)
 
@@ -182,27 +187,30 @@ def eval_multi(input_dict):
                 theta_err_i = theta_err_all[:,:,task_idx]
                 elapsed_time_i = elapsed_time_all[:,:,task_idx]
                 theta, n_revealed, B_n = gen_params(B, input_dict, task_idx, n_revealed)
-                opt_reward, model_reward = _eval_one_sim(input_dict, model, theta, sim_idx, elapsed_time_i, theta_err_i)
+                opt_reward, model_reward, theta_hat = _eval_one_sim(input_dict, model, theta, sim_idx, elapsed_time_i, theta_err_i)
                 task_regret[task_idx] = sum(opt_reward)-sum(model_reward)
                 model.reset()
                 B_list.append(B_n)
                 theta_list.append(theta)
-            cumul_regret_all[sim_idx,:] = np.cumsum(task_regret)
+                cumul_regret_all[sim_idx,:,task_idx] = np.cumsum(np.array(opt_reward) - np.array(model_reward))
+                angle_err[sim_idx, task_idx] = _cal_angle_err(theta, theta_hat)
+            cumul_regret[sim_idx,:] = np.cumsum(task_regret)
             if name=="SeqRepL" or name=="PMA":
                 for i, B_hat in enumerate(model.others):
                     B_perp_B_perp_transpose = np.eye(d) - B_hat @ B_hat.T
                     U, S, Vh = np.linalg.svd(B_perp_B_perp_transpose, full_matrices=True)
                     B_perp = U[:,:d-m]
                     B_hat_err[sim_idx,i] = np.linalg.norm(B_perp.T @ B_list[i])
-                    # B_hat_err[sim_idx,i] = np.linalg.norm(B_perp.T @ B)
                 for i, theta_hat_hat in enumerate(model.theta_hat_list):
                     theta_hat_err[sim_idx,i] = np.linalg.norm(theta_hat_hat - theta_list[i])
         results.append({'model':name,
                         'others':model.others,
                         'B_hat_err':B_hat_err,
                         'theta_hat_err':theta_hat_err,
-                        'regrets':cumul_regret_all,
+                        'regrets':cumul_regret,
+                        'regrets_all':cumul_regret_all,
                         'theta_err':theta_err_all,
+                        'angle_err':angle_err,
                         'time':elapsed_time_all,
                         })
     return _post_process(input_dict, results)
@@ -210,7 +218,7 @@ def eval_multi(input_dict):
 def gen_params(B, input_dict, task_idx, n_revealed):
     def _gen_params_from_B(B, m):
         w_i = np.random.uniform(-1,1,m)
-        u = np.random.uniform(0,1) #Scaling factor
+        u = np.random.uniform(0.8,1) #Scaling factor
         theta = B @ w_i
         theta = u*theta/np.linalg.norm(theta) #ensure unit ball length
         return theta, u*w_i
@@ -244,7 +252,7 @@ def gen_params(B, input_dict, task_idx, n_revealed):
         low_rank_B[:, n_revealed:] = 0
         theta, w_i = _gen_params_from_B(low_rank_B, m)
         # input_dict["theta"]=theta #For debug only
-        # input_dict["w_i"]=w_i
+        # input_dict["w_i"]=w_i #For debug only
         if mode==MODE_ADVERSARY: # if MODE_ADVERSARY, only reveal the first theta when SeqRepL explore
             assert input_dict["SeqRepL_exr_list"] is not None, "Not init input_dict['SeqRepL_exr_list']"
             low_rank_B_tmp = np.copy(low_rank_B)

@@ -48,7 +48,7 @@ class TS:
         a_t = self.select_ac(contexts)
         return contexts[a_t]
 
-    def select_ctx_without_ctx(self):
+    def select_ctx_unit_ball_action_set(self):
         """
         Assuming unit ball action
         """
@@ -97,7 +97,7 @@ class UCB:
         a_t = self.select_ac(contexts)
         return contexts[a_t]
 
-    def select_ctx_without_ctx(self):
+    def select_ctx_unit_ball_action_set(self):
         """
         Assuming unit ball action set
         """
@@ -141,7 +141,7 @@ class PHE:
         a_t = self.select_ac(contexts)
         return contexts[a_t]
 
-    def select_ctx_without_ctx(self):
+    def select_ctx_unit_ball_action_set(self):
         """
         Assuming unit ball action set
         """
@@ -181,7 +181,8 @@ class PEGE:
         if self.step <= self.tau_1:
             if self.EXR_contexts is None:
                 self.X_a = np.random.uniform(low=-1, high=1, size=self.d)
-                u = np.random.uniform(0,1) #Scaling factor
+                # u = np.random.uniform(0,1) #Scaling factor
+                u=1
                 self.X_a = u*self.X_a/np.linalg.norm(self.X_a) #ensure unit ball length
             else:
                 idx = self.step % len(self.EXR_contexts)
@@ -193,14 +194,15 @@ class PEGE:
         self.step += 1
         return self.X_a
 
-    def select_ctx_without_ctx(self):
+    def select_ctx_unit_ball_action_set(self):
         """
         Assuming unit ball action set
         """
         if self.step <= self.tau_1:
             if self.EXR_contexts is None:
                 self.X_a = np.random.uniform(low=-1, high=1, size=self.d)
-                u = np.random.uniform(0,1) #Scaling factor
+                # u = np.random.uniform(0,1) #Scaling factor
+                u=1
                 self.X_a = u*self.X_a/np.linalg.norm(self.X_a) #ensure unit ball length
             else:
                 idx = self.step % len(self.EXR_contexts)
@@ -249,7 +251,7 @@ class PEGE_oracle:
         self.step += 1
         return ctx_out
 
-    def select_ctx_without_ctx(self):
+    def select_ctx_unit_ball_action_set(self):
         """
         Assuming unit ball action set
         """
@@ -349,9 +351,9 @@ class BOSS_protocol:
                 self.X_a = self.B_hat @ out_ctx
             return self.X_a
 
-    def select_ctx_without_ctx(self):
+    def select_ctx_unit_ball_action_set(self):
         if self.is_EXR:
-            return self.base_model.select_ctx_without_ctx()
+            return self.base_model.select_ctx_unit_ball_action_set()
         else:
             if self.base_model.step < self.tau_2:
                 EXR_contexts = [self.B_hat[:,i] for i in range(self.input_dict["m"])]
@@ -360,7 +362,7 @@ class BOSS_protocol:
                 self.base_model.X_a = self.B_hat.T @ self.X_a
                 self.base_model.step += 1
             else: #<w,u> = w.T B.T@B u = <Bw, Bu> = <theta, Bu>
-                out_ctx = self.base_model.select_ctx_without_ctx()
+                out_ctx = self.base_model.select_ctx_unit_ball_action_set()
                 self.X_a = self.B_hat @ out_ctx
             return self.X_a
 
@@ -489,7 +491,7 @@ class PMA(BOSS_protocol):
                         logger.info(f"Warning: check_alpha_cover fails (covers all experts) l={l_i}. Decrease PMA_alpha_const.")
                     else:
                         logger.info(f"Warning: check_alpha_cover fails (rejects all experts) l={l_i}. Increase PMA_alpha_const.")
-                else:
+                else:#exp over the loss with overflow prevention
                     tmp0 = np.copy(self.expert_losses)
                     tmp1 = tmp0-min(tmp0) #prevent overflow
                     tmp2 = np.exp(-self.lr*tmp1)
