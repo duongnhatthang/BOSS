@@ -18,13 +18,13 @@
  -  Python 3.10
 
     ```
-    git clone https://github.com/duongnhatthang/Serena.git
-    cd Serena
+    git clone https://github.com/duongnhatthang/BOSS.git
+    cd BOSS
     pip install -r requirements.txt
     ```
 
 ## Evaluation 
- -  Interactive [Notebook](https://github.com/duongnhatthang/Serena/blob/main/exp.ipynb)
+ -  Interactive [Notebook](https://github.com/duongnhatthang/BOSS/blob/main/exp.ipynb)
 
 ## License: [Apache 2.0](https://github.com/duongnhatthang/meta-bandit/blob/main/LICENSE)
 
