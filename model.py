@@ -632,3 +632,46 @@ class SeqRepL(BOSS_protocol):
                 self.base_model = PEGE(
                     d=self.input_dict["m"], tau_1=self.tau_2, lam=self.lam
                 )
+
+
+"""
+BARON
+"""
+
+
+class BARON(SeqRepL):
+    def reset(self):
+        '''
+        Use the original reset function from BOSS_protocol
+        '''
+        d = self.input_dict["d"]
+        m = self.input_dict["m"]
+
+        # Decay Exr prob if needed
+        self.task_idx += 1
+        self.p = self.p / (
+            1 + self.input_dict["p_decay_rate"] * self.task_idx
+        )  # Decay EXR's prob overtime
+        self.p = min(self.p, 1)
+        if self.input_dict["p_decay_rate"] > 0:
+            logger.info(f"Exp prob = {round(self.p)}")
+
+        self.update_B_hat()
+
+        # Choose EXR/EXT and base_model
+        if self.is_first_round:
+            self.is_EXR = True
+        elif self.task_idx > self.stop_exr:
+            self.is_EXR = False
+        else:
+            self.is_EXR = np.random.binomial(n=1, p=self.p)
+        if self.is_first_round or self.is_EXR:
+            self.base_model = PEGE(d=d, tau_1=self.tau_1, lam=self.lam)
+        else:
+            self.base_model = PEGE(d=m, tau_1=self.tau_2, lam=self.lam)
+        self.is_first_round = False
+
+        if (
+            self.input_dict["fixed_params"] is not None
+        ):  # For comparison between BOSS and SeqRepL
+            self.p, self.tau_1, self.tau_2 = self.input_dict["fixed_params"]
