@@ -68,6 +68,8 @@ def algorithm4_capping(w: np.ndarray, d: int, tol: float = 1e-10) -> np.ndarray:
     -----
     From the paper: "The capping is an I-projection (Bregman projection with
     KL divergence) onto the constraint set."
+    The calculation is equivalent to what described in the paper.
+        - (below_cap_sum + excess) = 1 - i/d = (d - i) / d
     """
     n = len(w)
     cap = 1.0 / d

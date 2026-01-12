@@ -6,6 +6,7 @@ from scipy.stats import ortho_group
 from evaluation import logger
 from scipy.stats import entropy
 from data import generate_contexts
+from warmuth_algorithms import UncenteredOnlinePCA
 
 
 ## For quick update of Vinv
@@ -635,27 +636,123 @@ class SeqRepL(BOSS_protocol):
 
 
 """
-BARON
+BRESS - BOSS protocol using Warmuth's Uncentered Online PCA
 """
 
 
-class BARON(SeqRepL):
-    def reset(self):
-        '''
-        Use the original reset function from BOSS_protocol
-        '''
+class BRESS(BOSS_protocol):
+    """
+    BRESS: BOSS protocol that uses Warmuth's Uncentered Online PCA algorithm for 
+    subspace estimation instead of simple SVD accumulation.
+    
+    Key differences from SeqRepL:
+    - Uses matrix exponentiated gradient updates instead of simple outer product accumulation
+    - Uses select_subspace() from Warmuth's Uncentered Online PCA to sample the projection matrix for the estimated subspace B_hat
+    
+    The online PCA is updated at the END of each EXR task:
+    - After completing an EXR task, the final theta_hat estimate is fed to online PCA
+    """
+    
+    def __init__(self, input_dict, lam=1):
+        super().__init__(
+            input_dict, 
+            input_dict.get("OnlinePCA_tau2_const", 1), 
+            input_dict.get("OnlinePCA_stop_exr", input_dict["n_task"])
+        )
+        self.lam = lam
+        self.others = []  # Stores B_hat history for evaluation
+        self.theta_hat_list = []  # Stores theta_hat history for evaluation
+        self.input_dict = input_dict
+        
+        T = self.input_dict["T"]
         d = self.input_dict["d"]
         m = self.input_dict["m"]
-
-        # Decay Exr prob if needed
+        n_task = self.input_dict["n_task"]
+        
+        # Exploration probability
+        self.p = self.input_dict.get("OnlinePCA_exr_const", 1.5) * (9 * T * m**2 * (np.log(d/m))**2 / (2.5 * (n_task**2) * (d**2)))**(1/3)
+        self.p = min(self.p, 1)
+        
+        # Exploration phase length
+        self.tau_1 = self.input_dict.get("OnlinePCA_tau1_const", 1) * d * np.sqrt(2.5 * T / max(self.p, 1e-6))
+        self.tau_1 = min(self.tau_1, T)
+        
+        # Initialize Uncentered Online PCA
+        # n=d (ambient dimension), k=m (subspace dimension to keep)
+        # T parameter: expected number of EXR tasks (one update per EXR task)
+        expected_n_exr_tasks = max(1, int(self.p * n_task))
+        
+        # Allow custom eta (learning rate) if provided
+        custom_eta = self.input_dict.get("OnlinePCA_eta", None)
+        if custom_eta is not None:
+            self.online_pca = UncenteredOnlinePCA(
+                n=d, 
+                k=m, 
+                eta=custom_eta,
+                seed=None
+            )
+        else:
+            self.online_pca = UncenteredOnlinePCA(
+                n=d, 
+                k=m, 
+                T=expected_n_exr_tasks,
+                seed=None
+            )
+        
+        self.reset()
+        logger.info(
+            f"BRESS's exp prob = {round(self.p)}, tau_1 = {round(self.tau_1)}, tau_2 = {round(self.tau_2)}"
+        )
+    
+    def update_B_hat(self):
+        """
+        Update B_hat using the online PCA's select_subspace method.
+        
+        At the end of an EXR task:
+        1. Update online PCA with the final theta_hat from that task
+        2. Sample the k-dimensional subspace to keep using select_subspace()
+        3. Set B_hat as the basis of this subspace (from P_keep projection matrix)
+        """
+        d = self.input_dict["d"]
+        m = self.input_dict["m"]
+        
+        # Update online PCA with final theta_hat from completed EXR task
+        if self.is_first_round == False and self.is_EXR:
+            if np.linalg.norm(self.theta_hat) > 1e-6:
+                P_keep, P_discard = self.online_pca.select_subspace()
+                self.online_pca.update(self.theta_hat, P_discard)
+        
+        # Get B_hat by sampling from current density matrix using select_subspace
+        # P_keep is a rank-m projection matrix; extract its column space as B_hat
+        P_keep, P_discard = self.online_pca.select_subspace()
+        
+        # Extract orthonormal basis from P_keep (which is a projection matrix)
+        # P_keep = V @ V.T where V is the basis we want
+        eigenvalues, eigenvectors = np.linalg.eigh(P_keep)
+        # The m eigenvectors with eigenvalue ~1 form the basis
+        # (projection matrix has eigenvalues 0 or 1)
+        idx = np.argsort(eigenvalues)[::-1]  # Sort descending
+        self.B_hat = eigenvectors[:, idx[:m]]
+        
+        # Store history for evaluation (skip first round)
+        if self.is_first_round == False:
+            self.others.append(self.B_hat)
+            self.theta_hat_list.append(self.theta_hat)
+    
+    def reset(self):
+        """Reset for new task."""
+        d = self.input_dict["d"]
+        m = self.input_dict["m"]
+        
+        # Decay EXR prob if needed
         self.task_idx += 1
         self.p = self.p / (
-            1 + self.input_dict["p_decay_rate"] * self.task_idx
-        )  # Decay EXR's prob overtime
+            1 + self.input_dict.get("p_decay_rate", 0) * self.task_idx
+        )
         self.p = min(self.p, 1)
-        if self.input_dict["p_decay_rate"] > 0:
+        if self.input_dict.get("p_decay_rate", 0) > 0:
             logger.info(f"Exp prob = {round(self.p)}")
-
+        
         self.update_B_hat()
 
         # Choose EXR/EXT and base_model
@@ -665,13 +762,16 @@ class BARON(SeqRepL):
             self.is_EXR = False
         else:
             self.is_EXR = np.random.binomial(n=1, p=self.p)
+        
         if self.is_first_round or self.is_EXR:
+            # During EXR: use PEGE in ambient space (online_pca updated at task end in update_B_hat)
             self.base_model = PEGE(d=d, tau_1=self.tau_1, lam=self.lam)
         else:
+            # During EXT: use PEGE in low-dim space
             self.base_model = PEGE(d=m, tau_1=self.tau_2, lam=self.lam)
+        
         self.is_first_round = False
-
-        if (
-            self.input_dict["fixed_params"] is not None
-        ):  # For comparison between BOSS and SeqRepL
+        
+        # Handle fixed params if provided
+        if self.input_dict.get("fixed_params") is not None:
             self.p, self.tau_1, self.tau_2 = self.input_dict["fixed_params"]
