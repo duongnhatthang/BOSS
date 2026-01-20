@@ -1,6 +1,6 @@
 # Representation transfer for sequential multitask linear bandits
 
-This repository is the official implementation of Competitive Ratio and its application in Sequential Representation Learning for Multi-Task Linear Bandit
+This repository is the official implementation of "Beyond Task Diversity: Provable Representation Transfer for Sequential Multi-Task Linear Bandits" and "Efficient Algorithms for Lifelong Learning Linear Bandits"
 
 
 ## Requirements
@@ -27,11 +27,6 @@ Our algorithm achieves the following performance on a synthetic dataset:
 **Estimation error of the angle between $(\theta_n, \hat{\theta}_n)$**             |  **Regret over T, average across all tasks**
 :-------------------------:|:-------------------------:
 ![](https://github.com/duongnhatthang/Serena/blob/main/figures/no_div_angle_smooth.png)  |  ![](https://github.com/duongnhatthang/Serena/blob/main/figures/no_div_reg_T.png)
-
-
-## [Competitive Ratio and its application in Sequential Representation Learning for Multi-Task Linear Bandit]
-
-Placeholder
 
 
 ## Contributing
