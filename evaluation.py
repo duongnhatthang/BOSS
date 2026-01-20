@@ -17,7 +17,7 @@ logging.basicConfig(
 # Creating an object
 logger = logging.getLogger()
 logger.disabled = True
-from model import UCB, TS, PHE, PEGE, PMA, UCB_oracle, PEGE_oracle, SeqRepL, BARON
+from model import UCB, TS, PHE, PEGE, PMA, UCB_oracle, PEGE_oracle, SeqRepL, BRESS
 
 MODE_RANDOM = 0
 MODE_ADVERSARY_RANDOMIZE = 1
@@ -195,8 +195,8 @@ def eval_multi(input_dict):
                 model = PEGE_oracle(true_B=B, tau_1=param)
             elif name == "SeqRepL":
                 model = SeqRepL(input_dict=input_dict)
-            elif name == "BARON":
-                model = BARON(input_dict=input_dict)
+            elif name == "BRESS" or name == "OnlinePCA":
+                model = BRESS(input_dict=input_dict)
 
             task_regret = np.zeros((n_task,))
             B_list = []
@@ -217,7 +217,7 @@ def eval_multi(input_dict):
                 )
                 angle_err[sim_idx, task_idx] = _cal_angle_err(theta, theta_hat)
             cumul_regret[sim_idx, :] = np.cumsum(task_regret)
-            if name == "SeqRepL" or name == "PMA" or name == "BARON":
+            if name == "SeqRepL" or name == "PMA" or name == "BRESS" or name == "OnlinePCA":
                 for i, B_hat in enumerate(model.others):
                     B_perp_B_perp_transpose = np.eye(d) - B_hat @ B_hat.T
                     U, S, Vh = np.linalg.svd(
