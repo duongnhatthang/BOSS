@@ -22,11 +22,11 @@ Our algorithm achieves the following performance on a synthetic dataset:
 
 **Regret over tasks**             |  **Estimation error of B** | **Estimation error of $\theta_n$**
 :-------------------------:|:-------------------------:|:-------------------------:
-![](https://github.com/duongnhatthang/Serena/blob/main/figures/new_reg.png)  |  ![](https://github.com/duongnhatthang/Serena/blob/main/figures/new_B.png) |  ![](https://github.com/duongnhatthang/Serena/blob/main/figures/new_theta_smooth.png)
+![](https://github.com/duongnhatthang/Serena/blob/main/figures/no_div_reg.png)  |  ![](https://github.com/duongnhatthang/Serena/blob/main/figures/no_div_B.png) |  ![](https://github.com/duongnhatthang/Serena/blob/main/figures/new_theta_smooth.png)
 
 **Estimation error of the angle between $(\theta_n, \hat{\theta}_n)$**             |  **Regret over T, average across all tasks**
 :-------------------------:|:-------------------------:
-![](https://github.com/duongnhatthang/Serena/blob/main/figures/new_angle_smooth.png)  |  ![](https://github.com/duongnhatthang/Serena/blob/main/figures/new_reg_T.png)
+![](https://github.com/duongnhatthang/Serena/blob/main/figures/no_div_angle_smooth.png)  |  ![](https://github.com/duongnhatthang/Serena/blob/main/figures/no_div_reg_T.png)
 
 
 ## [Competitive Ratio and its application in Sequential Representation Learning for Multi-Task Linear Bandit]
