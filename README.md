@@ -13,7 +13,7 @@ pip install -r requirements.txt
 ```
 
 ## Evaluation
-Interactive [Notebook](https://github.com/duongnhatthang/BOSS/blob/main/exp.ipynb)
+Interactive [Notebook](https://github.com/duongnhatthang/BOSS/blob/main/main.ipynb)
 
 ## Results
 
